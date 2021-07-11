@@ -1,4 +1,4 @@
-package main
+package gojsonparser
 
 import (
 	"bufio"
