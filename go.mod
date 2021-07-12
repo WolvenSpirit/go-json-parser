@@ -1,3 +1,3 @@
-module github.com/WolvenSpirit/json-parser
+module github.com/WolvenSpirit/go-json-parser
 
 go 1.16
