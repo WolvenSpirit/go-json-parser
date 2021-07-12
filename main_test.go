@@ -3,6 +3,8 @@ package gojsonparser
 import (
 	"bufio"
 	"bytes"
+	"fmt"
+	"io"
 	"reflect"
 	"testing"
 )
@@ -55,6 +57,28 @@ func Test_detectSimpleValue(t *testing.T) {
 	buf3 := bytes.NewBuffer([]byte(s3))
 	r3 := bufio.NewReader(buf3)
 
+	s5 := `{
+		"GlossDiv": {
+			"title": "S",
+			"GlossList": {
+				"GlossEntry": {
+					"ID": "SGML",
+					"SortAs": "SGML",
+					"GlossTerm": "Standard Generalized Markup Language",
+					"Acronym": "SGML",
+					"Abbrev": "ISO 8879:1986",
+					"GlossDef": {
+						"para": "A meta-markup language, used to create markup languages such as DocBook.",
+						"GlossSeeAlso": ["GML", "XML"]
+					},
+					"GlossSee": "markup"
+						}
+					}
+		}
+	}`
+	buf5 := bytes.NewBuffer([]byte(s5))
+	r5 := bufio.NewReader(buf5)
+
 	type args struct {
 		r *bufio.Reader
 	}
@@ -82,10 +106,34 @@ func Test_detectSimpleValue(t *testing.T) {
 			want:    "something",
 			wantErr: false,
 		},
+		{
+			name: "",
+			args: args{r: r5},
+			want: `{
+				"title": "S",
+				"GlossList": {
+					"GlossEntry": {
+						"ID": "SGML",
+						"SortAs": "SGML",
+						"GlossTerm": "Standard Generalized Markup Language",
+						"Acronym": "SGML",
+						"Abbrev": "ISO 8879:1986",
+						"GlossDef": {
+							"para": "A meta-markup language, used to create markup languages such as DocBook.",
+							"GlossSeeAlso": ["GML", "XML"]
+						},
+						"GlossSee": "markup"
+							}
+						}
+			}`,
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := detectSimpleValue(tt.args.r)
+			got = stripSpaces(got)
+			tt.want = stripSpaces(tt.want)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("detectSimpleValue() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -142,19 +190,19 @@ func Test_object(t *testing.T) {
 		{
 			name:    "1d",
 			args:    args{r: r},
-			want:    "\"x\":3",
+			want:    "{\"x\":3}",
 			wantErr: false,
 		},
 		{
 			name:    "2d",
 			args:    args{r: r2},
-			want:    "\"x\":{\"y\":300}",
+			want:    "{\"x\":{\"y\":300}}",
 			wantErr: false,
 		},
 		{
 			name:    "3d",
 			args:    args{r: r3},
-			want:    "\"x\":{\"z\":{\"y\":\"something\"},\"foo\":3},\"bar\":0",
+			want:    "{\"x\":{\"z\":{\"y\":\"something\"},\"foo\":3},\"bar\":0}",
 			wantErr: false,
 		},
 		{
@@ -166,7 +214,7 @@ func Test_object(t *testing.T) {
 		{
 			name:    "5d",
 			args:    args{r: r5},
-			want:    s5[1 : len(s5)-1],
+			want:    s5[:],
 			wantErr: false,
 		},
 	}
@@ -185,6 +233,51 @@ func Test_object(t *testing.T) {
 }
 
 func Test_parse1D(t *testing.T) {
+	s := `{
+		"glossary": {
+			"title": "example glossary",
+			"GlossDiv": {
+				"title": "S",
+				"GlossList": {
+					"GlossEntry": {
+						"ID": "SGML",
+						"SortAs": "SGML",
+						"GlossTerm": "Standard Generalized Markup Language",
+						"Acronym": "SGML",
+						"Abbrev": "ISO 8879:1986",
+						"GlossDef": {
+							"para": "A meta-markup language, used to create markup languages such as DocBook.",
+							"GlossSeeAlso": ["GML", "XML"]
+						},
+						"GlossSee": "markup"
+							}
+						}
+			}
+		}
+	}`
+	buf := bytes.NewBuffer([]byte(s))
+	r := bufio.NewReader(buf)
+	m2 := make(map[string]string)
+	m2["glossary"] = `{
+		"title": "example glossary",
+		"GlossDiv": {
+			"title": "S",
+			"GlossList": {
+				"GlossEntry": {
+					"ID": "SGML",
+					"SortAs": "SGML",
+					"GlossTerm": "Standard Generalized Markup Language",
+					"Acronym": "SGML",
+					"Abbrev": "ISO 8879:1986",
+					"GlossDef": {
+						"para": "A meta-markup language, used to create markup languages such as DocBook.",
+						"GlossSeeAlso": ["GML", "XML"]
+					},
+					"GlossSee": "markup"
+						}
+					}
+		}
+	}`
 	s5 := `{"x":3,"bar":0,"foo":"something"}`
 	m := make(map[string]string)
 	m["x"] = "3"
@@ -205,7 +298,13 @@ func Test_parse1D(t *testing.T) {
 			name:    "5d",
 			args:    args{r: r5},
 			want:    m,
-			wantErr: false,
+			wantErr: true,
+		},
+		{
+			name:    "larger_json",
+			args:    args{r: r},
+			want:    m2,
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -215,8 +314,10 @@ func Test_parse1D(t *testing.T) {
 				t.Errorf("parse1D() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("parse1D() = %v, want %v", got, tt.want)
+			if tt.name != "larger_json" && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("parse1D() = \n%v, want \n%v", got, tt.want)
+			} else if tt.name == "larger_json" && stripSpaces(got["glossary"]) != stripSpaces(tt.want["glossary"]) {
+				t.Errorf("parse1D() = \n%v, want \n%v", stripSpaces(got["glossary"]), stripSpaces(tt.want["glossary"]))
 			}
 		})
 	}
@@ -261,6 +362,77 @@ func TestParse2Dimensional(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Parse2Dimensional() = \n%+v\n%+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func BenchmarkParse(b *testing.B) {
+	str := `{
+		"glossary": {
+			"title": "example glossary",
+			"a":1,
+			"b":2,
+			"c":3,
+			"d":4,
+			"e":5,
+			"f":6,
+			"g":7,
+			"h":8,
+			"i":9,
+			"GlossDiv": {
+				"title": "S",
+				"GlossList": {
+					"GlossEntry": {
+						"ID": "SGML",
+						"SortAs": "SGML",
+						"GlossTerm": "Standard Generalized Markup Language",
+						"Acronym": "SGML",
+						"Abbrev": "ISO 8879:1986",
+						"GlossDef": {
+							"para": "A meta-markup language, used to create markup languages such as DocBook.",
+							"GlossSeeAlso": ["GML", "XML"]
+						},
+						"GlossSee": "markup"
+							}
+						}
+			}
+		}
+	}`
+	buf := bytes.NewBuffer([]byte(str))
+	r := bufio.NewReader(buf)
+	m, err := Parse(r)
+	if err != nil && err != io.EOF {
+		b.Error(err.Error())
+	}
+	buf = bytes.NewBuffer([]byte(m["glossary"]))
+	r = bufio.NewReader(buf)
+	m2, err := Parse(r)
+	if err != nil && err != io.EOF {
+		b.Error(err.Error())
+	}
+	fmt.Printf("%+v", m2)
+}
+
+func Test_stripSpaces(t *testing.T) {
+	type args struct {
+		str string
+	}
+	tests := []struct {
+		name string
+		args args
+		want string
+	}{
+		{
+			name: "",
+			args: args{str: "  3  "},
+			want: "3",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stripSpaces(tt.args.str); got != tt.want {
+				t.Errorf("stripSpaces() = %v, want %v", got, tt.want)
 			}
 		})
 	}

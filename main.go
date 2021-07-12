@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"io"
+	"regexp"
 	"unicode"
 )
 
@@ -83,16 +84,8 @@ func detectSimpleValue(r *bufio.Reader) (string, error) {
 		if i > 0 && tryParse && i != lastIndexAppended {
 			if rn == braceOpen {
 				isObject = true
-				str = append(str, rn)
-				continue
-			}
-			if isObject && rn != braceClose {
-				str = append(str, rn)
-				continue
-			}
-			if isObject && rn == braceClose {
-				str = append(str, rn)
-				return string(str), nil
+				r.UnreadRune()
+				return detectObject(r)
 			}
 			if unicode.IsDigit(rn) && !isObject {
 				isDigit = true
@@ -117,7 +110,7 @@ func detectSimpleValue(r *bufio.Reader) (string, error) {
 
 func detectObject(r *bufio.Reader) (string, error) {
 	var foundBefore bool
-	var open int
+	var open int = 0
 	var s []rune
 	var i int
 	for {
@@ -133,6 +126,7 @@ func detectObject(r *bufio.Reader) (string, error) {
 		}
 		if rn == braceOpen && !foundBefore {
 			foundBefore = true
+			s = append(s, rn)
 			i++
 			continue
 		}
@@ -141,14 +135,13 @@ func detectObject(r *bufio.Reader) (string, error) {
 				open--
 			}
 			if rn == braceClose && open == 0 {
-				break
-			} else {
 				s = append(s, rn)
+				return string(s), nil
 			}
+			s = append(s, rn)
 			i++
 		}
 	}
-	return string(s), nil
 }
 
 // Parse takes a *bufio.Reader containing a json string and parses it into a map[string]string.
@@ -161,7 +154,7 @@ func Parse(r *bufio.Reader) (map[string]string, error) {
 	m := make(map[string]string, 1)
 	s, err := detectObject(r)
 	if err != nil {
-		return nil, err
+		return m, err
 	}
 	buf := bytes.NewBuffer([]byte(s))
 	rd := bufio.NewReader(buf)
@@ -169,19 +162,16 @@ func Parse(r *bufio.Reader) (map[string]string, error) {
 		key, err := detect(rd, '"')
 		if err != nil {
 			if err == io.EOF {
-				break
+				return m, err
 			}
-			return nil, err
 		}
 		m[key], err = detectSimpleValue(rd)
 		if err != nil {
 			if err == io.EOF {
-				break
+				return m, err
 			}
-			return nil, err
 		}
 	}
-	return m, nil
 }
 
 // Parse2Dimensional calls Parse also on first child objects.
@@ -191,7 +181,7 @@ func Parse2Dimensional(r *bufio.Reader) (map[string]Value, error) {
 	for k := range m {
 		result[k] = Value{String: m[k]}
 	}
-	if err != nil {
+	if err != nil && err != io.EOF {
 		return result, err
 	}
 	for k := range m {
@@ -199,7 +189,7 @@ func Parse2Dimensional(r *bufio.Reader) (map[string]Value, error) {
 			b := bytes.NewBuffer([]byte(m[k]))
 			rd := bufio.NewReader(b)
 			mv, err := Parse(rd)
-			if err != nil {
+			if err != nil && err != io.EOF {
 				return result, err
 			}
 			v := Value{String: result[k].String, Map: mv}
@@ -207,4 +197,9 @@ func Parse2Dimensional(r *bufio.Reader) (map[string]Value, error) {
 		}
 	}
 	return result, nil
+}
+
+func stripSpaces(str string) string {
+	re := regexp.MustCompile(`\s`)
+	return string(re.ReplaceAll([]byte(str), []byte("")))
 }
