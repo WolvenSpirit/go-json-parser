@@ -8,7 +8,7 @@ import (
 )
 
 func Test_detect(t *testing.T) {
-	s := "\"this_key\":3"
+	s := "\"this_key\": 3"
 	buf := bytes.NewBuffer([]byte(s))
 	r := bufio.NewReader(buf)
 	type args struct {
@@ -47,7 +47,7 @@ func Test_detectSimpleValue(t *testing.T) {
 	buf := bytes.NewBuffer([]byte(s))
 	r := bufio.NewReader(buf)
 
-	s2 := "\"x\":300"
+	s2 := "\"x\":{\"y\":3}"
 	buf2 := bytes.NewBuffer([]byte(s2))
 	r2 := bufio.NewReader(buf2)
 
@@ -73,7 +73,7 @@ func Test_detectSimpleValue(t *testing.T) {
 		{
 			name:    "",
 			args:    args{r: r2},
-			want:    "300",
+			want:    "{\"y\":3}",
 			wantErr: false,
 		},
 		{
@@ -210,13 +210,57 @@ func Test_parse1D(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := parseJSON(tt.args.r)
+			got, err := Parse(tt.args.r)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("parse1D() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parse1D() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParse2Dimensional(t *testing.T) {
+	s := `{"x":3,"bar":0,"foo":{"y":"something"}}`
+	buf := bytes.NewBuffer([]byte(s))
+	r := bufio.NewReader(buf)
+	m := make(map[string]string)
+	m["x"] = "3"
+	m["bar"] = "0"
+	m["foo"] = `{"y":"something"}`
+	child := make(map[string]string)
+	child["y"] = "something"
+	expect := make(map[string]Value)
+	expect["x"] = Value{String: "3"}
+	expect["bar"] = Value{String: "0"}
+	expect["foo"] = Value{String: `{"y":"something"}`, Map: child}
+	type args struct {
+		r *bufio.Reader
+	}
+	tests := []struct {
+		name    string
+		args    args
+		want    map[string]Value
+		wantErr bool
+	}{
+		{
+			name:    "",
+			args:    args{r: r},
+			want:    expect,
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Parse2Dimensional(tt.args.r)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Parse2Dimensional() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Parse2Dimensional() = \n%+v\n%+v", got, tt.want)
 			}
 		})
 	}
