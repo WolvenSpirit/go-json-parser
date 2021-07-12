@@ -2,16 +2,10 @@ package gojsonparser
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"unicode"
 )
-
-var j = `{
-			"foo":3,
-			"bar":"string"
-			}`
-
-var t = '\n'
 
 const (
 	twoColon    = ':'
@@ -97,4 +91,67 @@ func detectSimpleValue(r *bufio.Reader) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func detectObject(r *bufio.Reader) (string, error) {
+	var foundBefore bool
+	var open int
+	var s []rune
+	var i int
+	for {
+		rn, _, err := r.ReadRune()
+		if err != nil {
+			if err == io.EOF {
+				return string(s), err
+			}
+			return "", err
+		}
+		if rn == braceOpen {
+			open++
+		}
+		if rn == braceOpen && !foundBefore {
+			foundBefore = true
+			i++
+			continue
+		}
+		if foundBefore && i > 0 {
+			if rn == braceClose {
+				open--
+			}
+			if rn == braceClose && open == 0 {
+				break
+			} else {
+				s = append(s, rn)
+			}
+			i++
+		}
+	}
+	return string(s), nil
+}
+
+func parseJSON(r *bufio.Reader) (map[string]string, error) {
+	m := make(map[string]string, 1)
+	s, err := detectObject(r)
+	if err != nil {
+		return nil, err
+	}
+	buf := bytes.NewBuffer([]byte(s))
+	rd := bufio.NewReader(buf)
+	for {
+		key, err := detect(rd, '"')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+		m[key], err = detectSimpleValue(rd)
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return nil, err
+		}
+	}
+	return m, nil
 }
