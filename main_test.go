@@ -53,9 +53,12 @@ func Test_detectSimpleValue(t *testing.T) {
 	buf2 := bytes.NewBuffer([]byte(s2))
 	r2 := bufio.NewReader(buf2)
 
-	s3 := "\"x\":\"something\""
+	s3 := "\"x\":\"something\","
 	buf3 := bytes.NewBuffer([]byte(s3))
 	r3 := bufio.NewReader(buf3)
+
+	emptyBuf := bytes.NewBuffer([]byte(""))
+	emptyR := bufio.NewReader(emptyBuf)
 
 	s5 := `{
 		"GlossDiv": {
@@ -127,6 +130,12 @@ func Test_detectSimpleValue(t *testing.T) {
 						}
 			}`,
 			wantErr: false,
+		},
+		{
+			name:    "",
+			args:    args{r: emptyR},
+			want:    "",
+			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
@@ -285,6 +294,10 @@ func Test_parse1D(t *testing.T) {
 	m["foo"] = "something"
 	buf5 := bytes.NewBuffer([]byte(s5))
 	r5 := bufio.NewReader(buf5)
+
+	buf9 := bytes.NewBuffer([]byte(nil))
+	r9 := bufio.NewReader(buf9)
+
 	type args struct {
 		r *bufio.Reader
 	}
@@ -294,6 +307,12 @@ func Test_parse1D(t *testing.T) {
 		want    map[string]string
 		wantErr bool
 	}{
+		{
+			name:    "empty",
+			args:    args{r: r9},
+			want:    nil,
+			wantErr: true,
+		},
 		{
 			name:    "5d",
 			args:    args{r: r5},
@@ -314,10 +333,13 @@ func Test_parse1D(t *testing.T) {
 				t.Errorf("parse1D() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if tt.name != "larger_json" && !reflect.DeepEqual(got, tt.want) {
+			if tt.name != "larger_json" && tt.name != "empty" && !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parse1D() = \n%v, want \n%v", got, tt.want)
 			} else if tt.name == "larger_json" && stripSpaces(got["glossary"]) != stripSpaces(tt.want["glossary"]) {
 				t.Errorf("parse1D() = \n%v, want \n%v", stripSpaces(got["glossary"]), stripSpaces(tt.want["glossary"]))
+			}
+			if tt.name == "empty" && len(got) != len(tt.want) {
+				t.Errorf("parse1D() expected nil maps = \n%+v, want \n%+v", got, tt.want)
 			}
 		})
 	}
@@ -337,6 +359,11 @@ func TestParse2Dimensional(t *testing.T) {
 	expect["x"] = Value{String: "3"}
 	expect["bar"] = Value{String: "0"}
 	expect["foo"] = Value{String: `{"y":"something"}`, Map: child}
+
+	s2 := `{"x":{ `
+	buf2 := bytes.NewBuffer([]byte(s2))
+	r2 := bufio.NewReader(buf2)
+
 	type args struct {
 		r *bufio.Reader
 	}
@@ -352,6 +379,12 @@ func TestParse2Dimensional(t *testing.T) {
 			want:    expect,
 			wantErr: false,
 		},
+		{
+			name:    "nil",
+			args:    args{r: r2},
+			want:    nil,
+			wantErr: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -360,7 +393,9 @@ func TestParse2Dimensional(t *testing.T) {
 				t.Errorf("Parse2Dimensional() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+			if !reflect.DeepEqual(got, tt.want) && tt.name != "nil" {
+				t.Errorf("Parse2Dimensional() = \n%+v\n%+v", got, tt.want)
+			} else if len(got) != len(tt.want) {
 				t.Errorf("Parse2Dimensional() = \n%+v\n%+v", got, tt.want)
 			}
 		})

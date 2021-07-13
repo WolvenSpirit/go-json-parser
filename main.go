@@ -49,7 +49,7 @@ func detect(r *bufio.Reader, delim rune) (string, error) {
 	return string(s), nil
 }
 
-func detectSimpleValue(r *bufio.Reader) (string, error) {
+func detectSimpleValue(r *bufio.Reader) (s string, err error) {
 	var i int
 	var tryParse bool
 	var isDigit bool
@@ -69,18 +69,13 @@ func detectSimpleValue(r *bufio.Reader) (string, error) {
 					return string(str), nil
 				}
 			}
-			return "", err
+			return s, err
 		}
 		if rn == twoColon && !isObject {
 			i++
 			tryParse = true
 			continue
 		}
-		/*
-			if unicode.IsSpace(rn) && isDigit {
-				return string(digit), nil
-			}
-		*/
 		if i > 0 && tryParse && i != lastIndexAppended {
 			if rn == braceOpen {
 				isObject = true
@@ -105,7 +100,7 @@ func detectSimpleValue(r *bufio.Reader) (string, error) {
 			i++
 		}
 	}
-	return "", nil
+	return
 }
 
 func detectObject(r *bufio.Reader) (string, error) {
